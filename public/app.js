@@ -1,4 +1,7 @@
 // OptMap — клиентское приложение (демо-виджет + пример интеграции с API).
+//
+// Подложки карты: «Яндекс» (тайлы через прокси сервера, проекция EPSG:3395),
+// «OSM» (тайлы OpenStreetMap), «Схема» (векторная отрисовка демо-города).
 'use strict';
 
 const $ = (s) => document.querySelector(s);
@@ -10,8 +13,11 @@ const state = {
   routeLayer: null,
   legLines: [],
   map: null,
-  demo: false,
+  base: 'demo', // 'yandex' | 'osm' | 'demo'
+  cityData: null, // векторные данные демо-города
+  mapVersion: 0,
   embed: new URLSearchParams(location.search).has('embed'),
+  tileErrorShown: false,
 };
 
 /* ================= инициализация ================= */
@@ -27,21 +33,15 @@ async function init() {
   }
   state.health = health;
 
-  initMap();
-
-  if (health) {
-    const badge = $('#engine-badge');
-    const eng = health.engine;
-    if (eng.demo) {
-      badge.textContent = ' демо-данные: ' + eng.sourceName + ' ';
-      badge.className = 'badge badge-demo';
-      badge.title = 'Демонстрационная сеть. Загрузите реальный граф OSM: npm run ingest -- --pbf <файл>';
-    } else {
-      badge.textContent = ' данные: ' + eng.sourceName + ` (${(eng.edges / 1000).toFixed(0)} тыс. рёбер) `;
-      badge.className = 'badge badge-osm';
-    }
+  if (health?.engine.demo) {
+    try {
+      state.cityData = await (await fetch('/api/mapdata')).json();
+    } catch (e) { /* демо-данные недоступны — будет тайловая подложка */ }
   }
 
+  state.base = pickDefaultBase();
+  initMap();
+  updateBadge();
   bindUI();
   renderPoints();
 
@@ -56,36 +56,74 @@ async function init() {
   }
 }
 
-async function initMap() {
-  const map = L.map('map', { zoomControl: true, preferCanvas: true });
+function pickDefaultBase() {
+  const h = state.health;
+  if (!h) return 'osm';
+  if (h.engine.demo && state.cityData) return 'demo';
+  if (h.yandex?.tiles) return 'yandex';
+  return 'osm';
+}
+
+function updateBadge() {
+  const badge = $('#engine-badge');
+  if (!state.health) return;
+  const eng = state.health.engine;
+  if (eng.demo) {
+    badge.textContent = ' демо-данные: ' + eng.sourceName + ' ';
+    badge.className = 'badge badge-demo';
+    badge.title = 'Демонстрационная сеть. Загрузите реальный граф OSM: npm run ingest -- --pbf <файл>';
+  } else {
+    badge.textContent = ' данные: ' + eng.sourceName + ` (${(eng.edges / 1000).toFixed(0)} тыс. рёбер) `;
+    badge.className = 'badge badge-osm';
+  }
+}
+
+/* ================= карта и подложки ================= */
+
+function initMap() {
+  buildMap();
+}
+
+/** Пересоздаёт карту с выбранной подложкой (у Яндекса проекция EPSG:3395). */
+function buildMap() {
+  const prev = state.map;
+  let center = null;
+  let zoom = null;
+  if (prev) {
+    center = prev.getCenter();
+    zoom = prev.getZoom();
+    prev.remove();
+  }
+  const crs = state.base === 'yandex' ? L.CRS.EPSG3395 : L.CRS.EPSG3857;
+  const map = L.map('map', { zoomControl: true, preferCanvas: true, crs });
   state.map = map;
+  state.mapVersion++;
   state.routeLayer = L.layerGroup().addTo(map);
 
-  let bbox = null;
-  let showingTiles = false;
-  if (state.health && state.health.engine.demo) {
-    try {
-      const md = await (await fetch('/api/mapdata')).json();
-      bbox = md.bbox;
-      renderVectorCity(md);
-    } catch (e) {
-      showingTiles = true;
-    }
-  } else {
-    showingTiles = true;
-  }
-
-  if (showingTiles) {
+  if (state.base === 'yandex') {
+    L.tileLayer('/api/tiles/{z}/{x}/{y}', {
+      maxZoom: 19,
+      attribution: '© Яндекс',
+    })
+      .on('tileerror', onTileError)
+      .addTo(map);
+  } else if (state.base === 'osm' || (state.base === 'demo' && !state.cityData)) {
     L.tileLayer(state.health?.tileUrl || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap',
     }).addTo(map);
-    if (state.health?.engine.bbox) bbox = state.health.engine.bbox;
-    else bbox = [53.87, 27.48, 53.95, 27.65];
+  } else if (state.cityData) {
+    renderVectorCity(state.cityData);
   }
 
-  if (bbox) {
-    map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: [20, 20] });
+  // восстановление вида
+  if (state.result && state.result.legs.some((l) => l.coords)) {
+    drawResult(state.result); // перерисовать маршрут + подогнать bounds
+  } else if (center && zoom !== null) {
+    map.setView([center.lat, center.lng], zoom);
+  } else {
+    const bbox = state.cityData?.bbox || state.health?.engine.bbox;
+    if (bbox) map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: [20, 20] });
   }
 
   map.on('click', (e) => {
@@ -95,6 +133,28 @@ async function initMap() {
     }
     addPoint(e.latlng.lat, e.latlng.lng, '');
   });
+
+  updateSwitcher();
+}
+
+let tileErrorTimer = null;
+function onTileError() {
+  if (state.tileErrorShown) return;
+  state.tileErrorShown = true;
+  clearTimeout(tileErrorTimer);
+  tileErrorTimer = setTimeout(() => {
+    toast('Тайлы Яндекса не загружаются (серверу недоступен интернет?). Переключите подложку: OSM или Схема.', true);
+  }, 800);
+}
+
+function updateSwitcher() {
+  const sw = $('#basemap-switch');
+  if (!sw) return;
+  const canYandex = Boolean(state.health?.yandex?.tiles);
+  sw.querySelector('[data-base=yandex]').style.display = canYandex ? '' : 'none';
+  for (const b of sw.querySelectorAll('button')) {
+    b.classList.toggle('active', b.dataset.base === state.base);
+  }
 }
 
 /* ---------- векторный демо-город ---------- */
@@ -222,7 +282,7 @@ function renderPoints() {
     row.className = 'point-item' + (isStart ? ' is-start' : isEnd ? ' is-end' : '');
     row.innerHTML = `
       <div class="num">${i + 1}</div>
-      <div class="pname" title="${p.name}">${escapeHtml(p.name)}</div>
+      <div class="pname" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</div>
       <div class="pcoords">${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</div>
       <div class="tools">
         <button title="Сделать стартом" data-act="start">⌂</button>
@@ -236,8 +296,13 @@ function renderPoints() {
     row.querySelector('[data-act=del]').onclick = () => removePoint(i);
     list.appendChild(row);
 
+    // маркер мог остаться от прежней карты — пересоздаём при смене версии
+    if (p.marker && p.marker._v !== state.mapVersion) {
+      p.marker = null;
+    }
     if (!p.marker) {
       p.marker = L.marker([p.lat, p.lon], { draggable: true }).addTo(state.map);
+      p.marker._v = state.mapVersion;
       p.marker.on('dragend', (e) => {
         const ll = e.target.getLatLng();
         p.lat = ll.lat;
@@ -294,19 +359,21 @@ async function optimize() {
 
 function currentOptions() {
   const depart = $('#opt-depart').value;
-  return {
+  const opts = {
     roundTrip: $('#opt-roundtrip').checked,
     endLocked: $('#opt-endlocked').checked,
     mode: $('#opt-mode').value,
     traffic: $('#opt-traffic').checked,
     departHour: depart === '' ? null : Number(depart),
   };
+  if (state.health?.yandex?.router) opts.engine = $('#opt-engine').value;
+  return opts;
 }
 
 function clearResult() {
   state.result = null;
-  state.routeLayer.clearLayers();
-  $('#results').classList.add('hidden');
+  if (state.routeLayer) state.routeLayer.clearLayers();
+  $('#results')?.classList.add('hidden');
 }
 
 function fmtDur(s) {
@@ -317,6 +384,14 @@ function fmtDur(s) {
 
 function fmtKm(m) {
   return (m / 1000).toFixed(1);
+}
+
+function engineLabel(res) {
+  if (res.engine?.name === 'yandex') {
+    const t = res.engine.trafficType === 'forecast' ? 'прогноз пробок' : res.engine.trafficType === 'realtime' ? 'пробки realtime' : 'пробки';
+    return `Яндекс Карты (${t})`;
+  }
+  return 'локальный граф OSM';
 }
 
 function drawResult(res) {
@@ -332,6 +407,18 @@ function drawResult(res) {
     const isStart = pos === 0;
     const isEnd = pos === res.order.length - 1;
     const kind = isStart ? 'pin-start' : isEnd && !res.options.roundTrip ? 'pin-end' : '';
+    if (!p.marker || p.marker._v !== state.mapVersion) {
+      p.marker = L.marker([p.lat, p.lon], { draggable: true }).addTo(map);
+      p.marker._v = state.mapVersion;
+      p.marker.on('dragend', (e) => {
+        const ll = e.target.getLatLng();
+        p.lat = ll.lat;
+        p.lon = ll.lng;
+        renderPoints();
+        clearResult();
+      });
+      p.marker.on('click', () => makeStart(i));
+    }
     p.marker.setIcon(
       L.divIcon({
         className: '',
@@ -343,11 +430,10 @@ function drawResult(res) {
     p.marker.bindTooltip(`${pos + 1}. ${p.name}`, { direction: 'top' });
   });
 
-  // линии ног
+  // линии ног: белая подложка под основной линией маршрута
   const bounds = [];
-  res.legs.forEach((leg, idx) => {
+  res.legs.forEach((leg) => {
     if (leg.coords) {
-      // подложка (белая обводка) под основной линией маршрута
       L.polyline(leg.coords, { color: '#ffffff', weight: 9, opacity: 0.7, interactive: false }).addTo(state.routeLayer);
       const line = L.polyline(leg.coords, { color: '#2b7de9', weight: 5, opacity: 0.95 }).addTo(state.routeLayer);
       line.bindTooltip(
@@ -378,11 +464,11 @@ function drawResult(res) {
     ? new Date(new Date().setHours(res.options.departHour, 0, 0, 0))
     : new Date();
   let acc = departBase.getTime();
+  const hhmm = (d) => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   const tbody = $('#legs-table tbody');
   tbody.innerHTML = '';
   res.legs.forEach((leg, i) => {
     const arrive = new Date(acc + leg.durationS * 1000);
-    const hhmm = (d) => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${i + 1}</td>
@@ -398,11 +484,12 @@ function drawResult(res) {
   });
 
   $('#result-meta').textContent =
-    `${res.optimizer.method} · точек: ${res.optimizer.points} · матрица ${res.optimizer.matrixMs} мс · ` +
-    `оптимизация ${res.optimizer.optimizeMs ?? '—'} мс · всего ${res.optimizer.totalMs} мс` +
+    `${res.optimizer.method} · движок: ${engineLabel(res)} · точек: ${res.optimizer.points} · ` +
+    `матрица ${res.optimizer.matrixMs} мс · оптимизация ${res.optimizer.optimizeMs ?? '—'} мс · всего ${res.optimizer.totalMs} мс` +
     (res.options.traffic ? ' · пробки учтены' : ' · без пробок');
 
-  $('#warnings').innerHTML = (res.warnings || []).map((w) => '⚠ ' + escapeHtml(w)).join('<br>');
+  const warnings = res.warnings || [];
+  $('#warnings').innerHTML = warnings.map((w) => '⚠ ' + escapeHtml(w)).join('<br>');
 
   $('#results').classList.remove('hidden');
   if (bounds.length > 0) {
@@ -460,11 +547,15 @@ function bindUI() {
   $('#btn-json').onclick = exportJSON;
   $('#btn-curl').onclick = showCurl;
 
+  if (state.health?.yandex?.router) {
+    $('#row-engine').style.display = '';
+  }
+
   $('#opt-roundtrip').onchange = () => {
     $('#row-endlocked').style.display = $('#opt-roundtrip').checked ? 'none' : '';
     clearResult();
   };
-  for (const id of ['opt-endlocked', 'opt-mode', 'opt-traffic', 'opt-depart']) {
+  for (const id of ['opt-endlocked', 'opt-mode', 'opt-traffic', 'opt-depart', 'opt-engine']) {
     $('#' + id).onchange = clearResult;
   }
   $('#opt-traffic').onchange = () => {
@@ -480,10 +571,20 @@ function bindUI() {
     dep.appendChild(o);
   }
   dep.value = '';
-  // отметим часы пик в подсказке
   dep.title = '8:00–9:00 и 17:00–18:00 — час пик (будни)';
 
-  // поиск
+  // переключатель подложек
+  const sw = $('#basemap-switch');
+  for (const b of sw.querySelectorAll('button')) {
+    b.onclick = () => {
+      if (state.base === b.dataset.base) return;
+      state.base = b.dataset.base;
+      state.tileErrorShown = false;
+      buildMap();
+    };
+  }
+
+  // поиск (Яндекс-геокодер, если настроен; иначе поиск по графу)
   const input = $('#search');
   const box = $('#search-results');
   let timer = null;
@@ -496,12 +597,18 @@ function bindUI() {
         return;
       }
       try {
-        const r = await (await fetch('/api/geocode?q=' + encodeURIComponent(q))).json();
+        const c = state.map.getCenter();
+        const r = await (
+          await fetch(`/api/geocode?q=${encodeURIComponent(q)}&lat=${c.lat.toFixed(5)}&lon=${c.lng.toFixed(5)}`)
+        ).json();
         box.innerHTML = '';
+        const src = r.source === 'yandex' ? 'Яндекс' : r.source === 'osm-graph' ? 'граф' : '';
         for (const item of r.results || []) {
           const el = document.createElement('div');
           el.className = 'search-item';
-          el.innerHTML = `<span>${escapeHtml(item.name)}</span><span class="cls">${item.cls}</span>`;
+          el.innerHTML = `<span>${escapeHtml(item.name)}${
+            item.fullName && item.fullName !== item.name ? ` <small>${escapeHtml(item.fullName)}</small>` : ''
+          }</span><span class="cls">${escapeHtml(item.cls || '')}${src ? ' · ' + src : ''}</span>`;
           el.onclick = () => {
             box.classList.add('hidden');
             input.value = '';
@@ -510,7 +617,13 @@ function bindUI() {
           };
           box.appendChild(el);
         }
-        box.classList.toggle('hidden', (r.results || []).length === 0);
+        if ((r.results || []).length === 0) {
+          const el = document.createElement('div');
+          el.className = 'search-item';
+          el.textContent = 'Ничего не найдено';
+          box.appendChild(el);
+        }
+        box.classList.remove('hidden');
       } catch (e) {
         box.classList.add('hidden');
       }
@@ -526,7 +639,7 @@ function toast(msg, isError = false) {
   t.textContent = msg;
   t.className = 'toast' + (isError ? ' error' : '');
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.add('hidden'), 5000);
+  t._timer = setTimeout(() => t.classList.add('hidden'), 6000);
 }
 
 init();

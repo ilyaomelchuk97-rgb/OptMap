@@ -11,4 +11,9 @@ services:
       # - TRAFFIC_PROFILE=/app/config/traffic-profile.json
       - ALLOW_SYNTHETIC=${ALLOW_SYNTHETIC:-true}
       - MAX_POINTS=50
+      # Яндекс Карты (ключи из https://developer.tech.yandex.ru/)
+      - YANDEX_GEOCODER_KEY=${YANDEX_GEOCODER_KEY:-}
+      - YANDEX_ROUTER_KEY=${YANDEX_ROUTER_KEY:-}
+      - YANDEX_JS_KEY=${YANDEX_JS_KEY:-}
+      - ROUTING_ENGINE=${ROUTING_ENGINE:-auto}
     restart: unless-stopped

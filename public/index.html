@@ -55,6 +55,14 @@
             <option value="">сейчас</option>
           </select>
         </div>
+        <div class="opt-row" id="row-engine" style="display:none">
+          <span>Движок</span>
+          <select id="opt-engine" style="flex:1">
+            <option value="auto">авто (Яндекс при наличии ключа)</option>
+            <option value="yandex">Яндекс Карты (реальные пробки)</option>
+            <option value="local">локальный граф OSM</option>
+          </select>
+        </div>
         <button id="btn-optimize" class="btn-primary" disabled>Оптимизировать маршрут</button>
       </section>
 
@@ -83,7 +91,14 @@
       </footer>
     </aside>
 
-    <main id="map"></main>
+    <main id="map-wrap" style="position:relative; flex:1;">
+      <div id="map"></div>
+      <div id="basemap-switch" class="basemap-switch" title="Подложка карты">
+        <button data-base="yandex">Яндекс</button>
+        <button data-base="osm">OSM</button>
+        <button data-base="demo">Схема</button>
+      </div>
+    </main>
     <div id="toast" class="toast hidden"></div>
   </div>
 

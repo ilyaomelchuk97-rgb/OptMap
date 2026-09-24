@@ -145,6 +145,23 @@ export class Engine {
     return results.slice(0, limit);
   }
 
+  /** Обратное геокодирование (локально): ближайшая улица по графу. */
+  reverseName(lat, lon) {
+    const s = this.snap.snap(lat, lon, Math.max(150, this.config.snapRadiusM));
+    if (!s) return null;
+    const g = this.graph;
+    const name = g.nameOf(s.edgeId);
+    const cls = g.classes[g.clsI[s.edgeId]];
+    return {
+      name: name || `${cls} (без названия)`,
+      fullName: name || cls,
+      lat: s.lat,
+      lon: s.lon,
+      cls,
+      source: 'osm-graph',
+    };
+  }
+
   /** Гео-данные карты для демо-режима (дороги, вода, парки). */
   mapData() {
     const g = this.graph;
