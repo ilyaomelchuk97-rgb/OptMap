@@ -58,8 +58,9 @@
         <div class="opt-row" id="row-engine" style="display:none">
           <span>Движок</span>
           <select id="opt-engine" style="flex:1">
-            <option value="local" selected>OSM-граф (OpenStreetMap)</option>
-            <option value="auto">авто (Яндекс при наличии ключа)</option>
+            <option value="osrm" selected>OSRM — улицы OSM (роутер OSRM)</option>
+            <option value="local">локальный граф OSM (с моделью пробок)</option>
+            <option value="auto">авто (OSRM → Яндекс → локальный)</option>
             <option value="yandex">Яндекс Карты (реальные пробки)</option>
           </select>
         </div>

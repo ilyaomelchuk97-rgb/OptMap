@@ -365,7 +365,7 @@ function currentOptions() {
     traffic: $('#opt-traffic').checked,
     departHour: depart === '' ? null : Number(depart),
   };
-  opts.engine = $('#opt-engine')?.value || 'local';
+  opts.engine = $('#opt-engine')?.value || 'osrm';
   return opts;
 }
 
@@ -600,7 +600,7 @@ function bindUI() {
           await fetch(`/api/geocode?q=${encodeURIComponent(q)}&lat=${c.lat.toFixed(5)}&lon=${c.lng.toFixed(5)}`)
         ).json();
         box.innerHTML = '';
-        const src = { yandex: 'Яндекс', 'osm-graph': 'OSM граф', 'osm-nominatim': 'OSM Nominatim' }[r.source] || '';
+        const src = { yandex: 'Яндекс', 'osm-graph': 'OSM граф', 'osm-nominatim': 'OSM Nominatim', osrm: 'OSRM' }[r.source] || '';
         for (const item of r.results || []) {
           const el = document.createElement('div');
           el.className = 'search-item';

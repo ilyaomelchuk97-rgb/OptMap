@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { optimizeOrder } from '../optimizer/index.js';
 import { YandexAdapter, YandexError, nextDepartureTime } from '../adapters/yandex.js';
 import { NominatimAdapter } from '../adapters/nominatim.js';
+import { OsrmAdapter, OsrmError } from '../adapters/osrm.js';
 
 const WEEKEND_DAYS = [0, 6];
 const TILE_UA = 'OptMap/0.1 (self-hosted routing; tile proxy for demo map)';
@@ -29,6 +30,9 @@ export function createApi(engine) {
 
   // адаптер Nominatim — геокодер OpenStreetMap (без ключей)
   const nominatim = new NominatimAdapter({ url: engine.config.nominatimUrl });
+
+  // адаптер OSRM — улицы и маршруты из OpenStreetMap (основной источник)
+  const osrm = new OsrmAdapter({ url: engine.config.osrmUrl, timeoutMs: engine.config.osrmTimeoutMs });
 
   /* ---------- вспомогательное ---------- */
 
@@ -49,8 +53,8 @@ export function createApi(engine) {
       }
     }
     const engineName = o.engine === undefined || o.engine === null ? null : String(o.engine);
-    if (engineName !== null && !['auto', 'yandex', 'local'].includes(engineName)) {
-      const err = new Error('options.engine: допустимо auto | yandex | local');
+    if (engineName !== null && !['auto', 'osrm', 'yandex', 'local'].includes(engineName)) {
+      const err = new Error('options.engine: допустимо osrm | auto | yandex | local');
       err.status = 400;
       throw err;
     }
@@ -78,19 +82,35 @@ export function createApi(engine) {
     return po.departHour !== null ? nextDepartureTime(po.departHour) : null;
   }
 
-  /** Какой движок использовать: 'yandex' | 'local'. */
+  /**
+   * Какой движок считать маршруты: 'osrm' | 'yandex' | 'local'.
+   * auto: OSRM (улицы OSM) → Яндекс (если ключ) → локальный граф.
+   */
   function resolveEngine(po) {
     const pref = po.engine || engine.config.routingEngine || 'auto';
-    const wantYandex =
-      pref === 'yandex' || (pref === 'auto' && yandex.routerEnabled && po.mode === 'time' && po.trafficOn);
-    if (wantYandex && !yandex.routerEnabled) {
-      const err = new Error(
-        'Запрошен движок «yandex», но не настроен YANDEX_ROUTER_KEY. Получите ключ на developer.tech.yandex.ru (API Маршрутизации) или укажите options.engine=local.'
-      );
-      err.status = 400;
-      throw err;
+    if (pref === 'osrm') {
+      if (!osrm.enabled) {
+        const err = new Error('OSRM выключен (OSRM_URL пуст). Укажите options.engine=local или настройте OSRM_URL.');
+        err.status = 400;
+        throw err;
+      }
+      return 'osrm';
     }
-    return wantYandex ? 'yandex' : 'local';
+    if (pref === 'yandex') {
+      if (!yandex.routerEnabled) {
+        const err = new Error(
+          'Запрошен движок «yandex», но не настроен YANDEX_ROUTER_KEY. Получите ключ на developer.tech.yandex.ru (API Маршрутизации) или укажите options.engine=osrm/local.'
+        );
+        err.status = 400;
+        throw err;
+      }
+      return 'yandex';
+    }
+    if (pref === 'local') return 'local';
+    // auto
+    if (osrm.enabled) return 'osrm';
+    if (yandex.routerEnabled && po.mode === 'time' && po.trafficOn) return 'yandex';
+    return 'local';
   }
 
   /** Валидация массива точек. */
@@ -147,6 +167,11 @@ export function createApi(engine) {
         enabled: nominatim.enabled,
         url: engine.config.nominatimUrl || null,
       },
+      osrm: {
+        enabled: osrm.enabled,
+        url: engine.config.osrmUrl || null,
+        note: 'OSRM строит маршруты по улицам OSM (свободный поток, без live-пробок)',
+      },
       routingEngine: resolveEngine({ mode: 'time', trafficOn: true, engine: null }),
     });
   });
@@ -177,8 +202,24 @@ export function createApi(engine) {
       warnings.push('Движок Яндекс строит только быстрые маршруты с пробками (mode=time, traffic=on) — считаю локальным движком');
       engineName = 'local';
     }
+    // OSRM считает по свободному потоку — live-пробки не применяются
+    if (engineName === 'osrm' && po.trafficOn) {
+      warnings.push('OSRM считает время по улицам OSM без live-пробок (свободный поток); для модели пробок используйте options.engine=local');
+    }
 
     let result = null;
+    if (engineName === 'osrm') {
+      try {
+        result = await computeOsrm(po, points, t0);
+      } catch (e) {
+        if (e instanceof OsrmError) {
+          warnings.push(`OSRM недоступен (${e.message}) — считаю локальным движком по графу OSM`);
+          result = null;
+        } else {
+          return fail(res, e.status || 500, e.message, e.code);
+        }
+      }
+    }
     if (engineName === 'yandex') {
       try {
         result = await computeYandex(po, points, t0);
@@ -224,6 +265,70 @@ export function createApi(engine) {
       warnings,
     });
   });
+
+  /** Расчёт через OSRM: улицы OSM, свободный поток. */
+  async function computeOsrm(po, points, t0) {
+    // 1. матрица времён/дистанций по улично-дорожной сети (OSRM table)
+    const tMatrix = Date.now();
+    const mx = await osrm.matrix(points, points, { mode: po.mode });
+    const matrixMs = Date.now() - tMatrix;
+
+    for (let i = 0; i < points.length; i++) {
+      for (let j = 0; j < points.length; j++) {
+        if (i !== j && !isFinite(mx.times[i][j]) && !isFinite(mx.lens[i][j])) {
+          throw new OsrmError(
+            `нет маршрута между «${pointName(points[i], i)}» и «${pointName(points[j], j)}»`
+          );
+        }
+      }
+    }
+
+    // 2. оптимальный порядок обхода (наш оптимизатор поверх матрицы OSRM)
+    const costMx = po.mode === 'time' ? mx.times.map((r) => [...r]) : mx.lens.map((r) => [...r]);
+    const opt = optimizeOrder(costMx, { roundTrip: po.roundTrip, endLocked: po.endLocked });
+    const order = opt.order;
+
+    // 3. единый запрос маршрута по всей последовательности (геометрия по улицам)
+    const seq = [...order];
+    if (po.roundTrip && order.length > 2) seq.push(order[0]);
+    const tLegs = Date.now();
+    const rr = await osrm.route(
+      seq.map((i) => ({ lat: points[i].lat, lon: points[i].lon }))
+    );
+    const legsMs = Date.now() - tLegs;
+    if (rr.legs.length !== seq.length - 1) {
+      throw new OsrmError(`ожидалось ${seq.length - 1} участков маршрута, получено ${rr.legs.length}`);
+    }
+
+    const legs = rr.legs.map((leg, s) => ({
+      from: seq[s],
+      to: seq[s + 1],
+      fromName: pointName(points[seq[s]], seq[s]),
+      toName: pointName(points[seq[s + 1]], seq[s + 1]),
+      distanceM: Math.round(leg.distanceM),
+      durationS: Math.round(leg.durationS),
+      avgSpeedKmh: avgKmh(leg.distanceM, leg.durationS),
+      coords: po.returnGeometry ? leg.coords : undefined,
+    }));
+
+    const totals = summarize(legs, seq, points, engine);
+
+    return {
+      order,
+      legs,
+      totals,
+      optimizer: {
+        method: opt.method,
+        points: points.length,
+        matrixMs,
+        optimizeMs: opt.elapsedMs ?? null,
+        legsMs,
+        totalMs: Date.now() - t0,
+      },
+      engineName: 'osrm',
+      trafficType: null,
+    };
+  }
 
   /** Расчёт локальным движком (граф OSM). */
   function computeLocal(po, points, t0, warnings) {
@@ -398,7 +503,13 @@ export function createApi(engine) {
       let timesS;
       let distancesM;
       let source;
-      if (resolveEngine(po) === 'yandex') {
+      const eng = resolveEngine(po);
+      if (eng === 'osrm') {
+        const mx = await osrm.matrix(points, points, { mode: po.mode });
+        timesS = mx.times.map((r) => [...r].map((v) => (isFinite(v) ? Math.round(v * 10) / 10 : null)));
+        distancesM = mx.lens.map((r) => [...r].map((v) => (isFinite(v) ? Math.round(v) : null)));
+        source = 'osrm';
+      } else if (eng === 'yandex') {
         const mx = await yandex.matrix(points, points, { departureTime: departureTimeOf(po) });
         timesS = mx.times.map((r) => [...r].map((v) => (isFinite(v) ? Math.round(v * 10) / 10 : null)));
         distancesM = mx.lens.map((r) => [...r].map((v) => (isFinite(v) ? Math.round(v) : null)));
@@ -420,6 +531,7 @@ export function createApi(engine) {
       });
     } catch (e) {
       if (e instanceof YandexError) return fail(res, 502, `Яндекс: ${e.message}`, 'YANDEX_ERROR');
+      if (e instanceof OsrmError) return fail(res, 502, `OSRM: ${e.message}`, 'OSRM_ERROR');
       return fail(res, e.status || 500, e.message, e.code);
     }
   });
@@ -441,6 +553,17 @@ export function createApi(engine) {
       let out = null;
       let warning = null;
       let trafficType = null;
+      if (engineName === 'osrm') {
+        try {
+          const rr = await osrm.route([{ lat: from.lat, lon: from.lon }, { lat: to.lat, lon: to.lon }]);
+          const leg = rr.legs[0];
+          out = { distanceM: leg.distanceM, durationS: leg.durationS, coords: leg.coords };
+        } catch (e) {
+          if (!(e instanceof OsrmError)) throw e;
+          warning = `OSRM недоступен (${e.message}) — локальный движок`;
+          engineName = 'local';
+        }
+      }
       if (engineName === 'yandex') {
         try {
           const rr = await yandex.route(
@@ -476,6 +599,7 @@ export function createApi(engine) {
         options: { mode: po.mode, traffic: po.trafficOn, departHour: po.departHour },
       });
     } catch (e) {
+      if (e instanceof OsrmError) return fail(res, 502, `OSRM: ${e.message}`, 'OSRM_ERROR');
       return fail(res, e.status || 500, e.message, e.code);
     }
   }
