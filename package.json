@@ -1,0 +1,23 @@
+{
+  "name": "optmap",
+  "version": "0.1.0",
+  "description": "Оптимизатор маршрута по точкам: честный километраж и время с учётом ограничений скорости и пробок (собственный движок на графе дорог OSM)",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "ingest": "node scripts/ingest.js",
+    "demo-data": "node scripts/ingest.js --synthetic --out data/graph-demo.json.gz",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "compression": "^1.7.4",
+    "express": "^4.19.2",
+    "leaflet": "^1.9.4",
+    "osm-pbf-parser": "^2.3.0"
+  }
+}

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OptMap — оптимизатор маршрута по точкам</title>
+  <link rel="stylesheet" href="/vendor/leaflet.css">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🗺️</text></svg>">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <header class="brand">
+        <div class="brand-logo">OptMap</div>
+        <div class="brand-sub">оптимизатор маршрутов: честный километраж и время</div>
+        <div id="engine-badge" class="badge badge-demo" title="Источник дорожных данных">…</div>
+      </header>
+
+      <section class="panel">
+        <div class="search-row">
+          <input id="search" type="text" placeholder="Поиск улицы…" autocomplete="off">
+          <div id="search-results" class="search-results hidden"></div>
+        </div>
+        <div class="hint">Кликните по карте, чтобы добавить точку</div>
+
+        <div id="points-list" class="points-list"></div>
+        <div id="points-empty" class="empty">Точек пока нет.<br>Добавьте минимум две.</div>
+      </section>
+
+      <section class="panel">
+        <h3>Параметры</h3>
+        <label class="opt-row">
+          <input type="checkbox" id="opt-roundtrip" checked>
+          <span>Замкнутый маршрут <small>(вернуться в старт)</small></span>
+        </label>
+        <label class="opt-row" id="row-endlocked" style="display:none">
+          <input type="checkbox" id="opt-endlocked">
+          <span>Финиш — в последней точке</span>
+        </label>
+        <div class="opt-row">
+          <span>Строить маршрут</span>
+          <select id="opt-mode">
+            <option value="time">быстрее (с учётом скоростей)</option>
+            <option value="distance">короче (минимальный км)</option>
+          </select>
+        </div>
+        <label class="opt-row">
+          <input type="checkbox" id="opt-traffic" checked>
+          <span>Учитывать пробки <small>(загрузка по времени суток)</small></span>
+        </label>
+        <div class="opt-row">
+          <span>Выезд</span>
+          <select id="opt-depart" style="flex:1">
+            <option value="">сейчас</option>
+          </select>
+        </div>
+        <button id="btn-optimize" class="btn-primary" disabled>Оптимизировать маршрут</button>
+      </section>
+
+      <section id="results" class="panel results hidden">
+        <h3>Результат</h3>
+        <div id="totals" class="totals"></div>
+        <div id="order-chips" class="order-chips"></div>
+        <div class="table-wrap">
+          <table id="legs-table">
+            <thead><tr><th>#</th><th>Участок</th><th>км</th><th>время</th><th>ср. км/ч</th><th>прибытие</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="result-meta" class="result-meta"></div>
+        <div id="warnings" class="warnings"></div>
+        <div class="export-row">
+          <button id="btn-gpx" class="btn-ghost">GPX</button>
+          <button id="btn-json" class="btn-ghost">JSON</button>
+          <button id="btn-curl" class="btn-ghost">Пример запроса</button>
+        </div>
+        <pre id="curl-box" class="curl-box hidden"></pre>
+      </section>
+
+      <footer class="foot">
+        REST API: <code>POST /api/optimize</code> · <a href="/api/health" target="_blank">/api/health</a>
+      </footer>
+    </aside>
+
+    <main id="map"></main>
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="/vendor/leaflet.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
