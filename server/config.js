@@ -33,7 +33,7 @@ export const config = {
 
   tileUrl: process.env.TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
 
-  // ---- Яндекс Карты ----
+  // ---- Яндекс Карты (опциональные интеграции) ----
   // Ключи из кабинета разработчика (https://developer.tech.yandex.ru/):
   yandexGeocoderKey: process.env.YANDEX_GEOCODER_KEY || process.env.YANDEX_API_KEY || null,
   yandexRouterKey: process.env.YANDEX_ROUTER_KEY || process.env.YANDEX_API_KEY || null,
@@ -42,8 +42,12 @@ export const config = {
   // Тайл-прокси Яндекса для подложки демо-карты (on/off).
   yandexTiles: process.env.YANDEX_TILES !== 'off',
   yandexTileUrl: process.env.YANDEX_TILE_URL || 'https://core-renderer-tile.maps.yandex.net/tiles',
-  // Какой движок использовать по умолчанию: auto = yandex при наличии ключа, иначе локальный.
-  routingEngine: process.env.ROUTING_ENGINE || 'auto',
+  // Движок по умолчанию: local (дороги из OpenStreetMap) | auto | yandex.
+  routingEngine: process.env.ROUTING_ENGINE || 'local',
   yandexGeocoderUrl: process.env.YANDEX_GEOCODER_URL || 'https://geocode-maps.yandex.ru/1.x/',
   yandexRouterUrl: process.env.YANDEX_ROUTER_URL || 'https://api.routing.yandex.net/v2',
+
+  // ---- Nominatim: геокодер OpenStreetMap (адресный поиск без ключей) ----
+  nominatimUrl:
+    process.env.NOMINATIM_URL !== undefined ? process.env.NOMINATIM_URL : 'https://nominatim.openstreetmap.org',
 };

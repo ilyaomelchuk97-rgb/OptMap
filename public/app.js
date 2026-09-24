@@ -60,8 +60,7 @@ function pickDefaultBase() {
   const h = state.health;
   if (!h) return 'osm';
   if (h.engine.demo && state.cityData) return 'demo';
-  if (h.yandex?.tiles) return 'yandex';
-  return 'osm';
+  return 'osm'; // дороги и подложка — OpenStreetMap; Яндекс переключается вручную
 }
 
 function updateBadge() {
@@ -366,7 +365,7 @@ function currentOptions() {
     traffic: $('#opt-traffic').checked,
     departHour: depart === '' ? null : Number(depart),
   };
-  if (state.health?.yandex?.router) opts.engine = $('#opt-engine').value;
+  opts.engine = $('#opt-engine')?.value || 'local';
   return opts;
 }
 
@@ -547,9 +546,8 @@ function bindUI() {
   $('#btn-json').onclick = exportJSON;
   $('#btn-curl').onclick = showCurl;
 
-  if (state.health?.yandex?.router) {
-    $('#row-engine').style.display = '';
-  }
+  // выбор движка доступен всегда (по умолчанию — OSM-граф)
+  $('#row-engine').style.display = '';
 
   $('#opt-roundtrip').onchange = () => {
     $('#row-endlocked').style.display = $('#opt-roundtrip').checked ? 'none' : '';
@@ -602,7 +600,7 @@ function bindUI() {
           await fetch(`/api/geocode?q=${encodeURIComponent(q)}&lat=${c.lat.toFixed(5)}&lon=${c.lng.toFixed(5)}`)
         ).json();
         box.innerHTML = '';
-        const src = r.source === 'yandex' ? 'Яндекс' : r.source === 'osm-graph' ? 'граф' : '';
+        const src = { yandex: 'Яндекс', 'osm-graph': 'OSM граф', 'osm-nominatim': 'OSM Nominatim' }[r.source] || '';
         for (const item of r.results || []) {
           const el = document.createElement('div');
           el.className = 'search-item';

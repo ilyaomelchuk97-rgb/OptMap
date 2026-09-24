@@ -202,7 +202,7 @@ async function optimize() {
       options: {
         roundTrip: $('#opt-roundtrip').checked,
         traffic: $('#opt-traffic').checked,
-        engine: state.health?.yandex?.router ? 'yandex' : 'auto',
+        engine: $('#opt-engine').value,
       },
     };
     const r = await fetch('/api/optimize', {
@@ -294,7 +294,7 @@ function bindUI() {
   $('#btn-curl').onclick = () => {
     const body = {
       points: state.points.map((p) => ({ lat: +p.lat.toFixed(5), lon: +p.lon.toFixed(5), name: p.name })),
-      options: { roundTrip: $('#opt-roundtrip').checked, engine: state.health?.yandex?.router ? 'yandex' : 'auto' },
+      options: { roundTrip: $('#opt-roundtrip').checked, engine: $('#opt-engine').value },
     };
     $('#curl-box').textContent =
       `curl -X POST ${location.origin}/api/optimize \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(body)}'`;
@@ -318,7 +318,7 @@ function bindUI() {
         await fetch(`/api/geocode?q=${encodeURIComponent(q)}&lat=${c[0].toFixed(5)}&lon=${c[1].toFixed(5)}`)
       ).json();
       box.innerHTML = '';
-      const src = r.source === 'yandex' ? 'Яндекс' : 'граф';
+      const src = { yandex: 'Яндекс', 'osm-graph': 'OSM граф', 'osm-nominatim': 'OSM Nominatim' }[r.source] || '';
       for (const item of r.results || []) {
         const el = document.createElement('div');
         el.className = 'search-item';

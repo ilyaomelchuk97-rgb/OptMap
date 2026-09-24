@@ -11,6 +11,7 @@
 import { Router } from 'express';
 import { optimizeOrder } from '../optimizer/index.js';
 import { YandexAdapter, YandexError, nextDepartureTime } from '../adapters/yandex.js';
+import { NominatimAdapter } from '../adapters/nominatim.js';
 
 const WEEKEND_DAYS = [0, 6];
 const TILE_UA = 'OptMap/0.1 (self-hosted routing; tile proxy for demo map)';
@@ -25,6 +26,9 @@ export function createApi(engine) {
     geocoderUrl: engine.config.yandexGeocoderUrl,
     routerUrl: engine.config.yandexRouterUrl,
   });
+
+  // адаптер Nominatim — геокодер OpenStreetMap (без ключей)
+  const nominatim = new NominatimAdapter({ url: engine.config.nominatimUrl });
 
   /* ---------- вспомогательное ---------- */
 
@@ -138,6 +142,10 @@ export function createApi(engine) {
         router: yandex.routerEnabled,
         tiles: Boolean(engine.config.yandexTiles),
         jsKey: engine.config.yandexJsKey, // открытый ключ JS API (для браузера)
+      },
+      nominatim: {
+        enabled: nominatim.enabled,
+        url: engine.config.nominatimUrl || null,
       },
       routingEngine: resolveEngine({ mode: 'time', trafficOn: true, engine: null }),
     });
@@ -491,7 +499,7 @@ export function createApi(engine) {
     );
   });
 
-  /* ---------- Геокодирование (Яндекс → фолбэк: поиск по графу) ---------- */
+  /* ---------- Геокодирование: OSM-граф → Nominatim → Яндекс (по запросу) ---------- */
 
   api.get('/geocode', async (req, res) => {
     const q = String(req.query.q || '').trim();
@@ -499,35 +507,80 @@ export function createApi(engine) {
     if (q.length < 2) return res.json({ results: [], source: 'none' });
     const lat = req.query.lat !== undefined && req.query.lat !== '' ? Number(req.query.lat) : null;
     const lon = req.query.lon !== undefined && req.query.lon !== '' ? Number(req.query.lon) : null;
+    // src: auto (по умолчанию) | graph | osm | yandex
+    const src = ['auto', 'graph', 'osm', 'yandex'].includes(String(req.query.src)) ? String(req.query.src) : 'auto';
+    const warnings = [];
 
-    if (yandex.geocoderEnabled) {
-      try {
-        const results = await yandex.geocode(q, { lat, lon, limit });
-        return res.json({ results, source: 'yandex' });
-      } catch (e) {
-        const results = engine.geocode(q, limit);
-        return res.json({ results, source: 'osm-graph', warning: `Яндекс-геокодер недоступен: ${e.message}` });
+    // 1. быстрый локальный поиск по загруженному дорожному графу (работает офлайн)
+    const graphResults = src === 'osm' || src === 'yandex' ? [] : engine.geocode(q, limit);
+    if (src === 'graph' || graphResults.length >= Math.min(limit, 3)) {
+      return res.json({ results: graphResults, source: 'osm-graph' });
+    }
+
+    // 2. Nominatim — геокодер OpenStreetMap (адреса, дома, POI)
+    if (src === 'auto' || src === 'osm') {
+      if (nominatim.enabled) {
+        try {
+          const results = await nominatim.geocode(q, { lat, lon, limit });
+          if (results.length > 0) {
+            return res.json({ results, source: 'osm-nominatim', warnings });
+          }
+          warnings.push('Nominatim не нашёл совпадений');
+        } catch (e) {
+          warnings.push(`Nominatim недоступен: ${e.message}`);
+        }
       }
     }
-    return res.json({ results: engine.geocode(q, limit), source: 'osm-graph' });
+
+    // 3. Яндекс-геокодер — только если настроен ключ
+    if ((src === 'auto' || src === 'yandex') && yandex.geocoderEnabled) {
+      try {
+        const results = await yandex.geocode(q, { lat, lon, limit });
+        return res.json({ results, source: 'yandex', warnings });
+      } catch (e) {
+        warnings.push(`Яндекс-геокодер недоступен: ${e.message}`);
+      }
+    }
+
+    return res.json({ results: graphResults, source: 'osm-graph', warnings });
   });
 
-  /** Обратное геокодирование: координаты → адрес/улица. */
+  /** Обратное геокодирование: координаты → адрес/улица (OSM-граф → Nominatim → Яндекс). */
   api.get('/geocode/reverse', async (req, res) => {
     const lat = Number(req.query.lat);
     const lon = Number(req.query.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       return fail(res, 400, 'Ожидаются параметры lat и lon');
     }
-    if (yandex.geocoderEnabled) {
-      try {
-        const r = await yandex.reverse(lat, lon);
-        if (r) return res.json({ result: r, source: 'yandex' });
-      } catch (_e) {
-        /* фолбэк на локальный */
+    const src = ['auto', 'graph', 'osm', 'yandex'].includes(String(req.query.src)) ? String(req.query.src) : 'auto';
+    const warnings = [];
+
+    if (src === 'graph') {
+      return res.json({ result: engine.reverseName(lat, lon), source: 'osm-graph' });
+    }
+
+    // Nominatim — основной адресный источник OSM
+    if (src === 'auto' || src === 'osm') {
+      if (nominatim.enabled) {
+        try {
+          const r = await nominatim.reverse(lat, lon);
+          if (r) return res.json({ result: r, source: 'osm-nominatim', warnings });
+        } catch (e) {
+          warnings.push(`Nominatim недоступен: ${e.message}`);
+        }
       }
     }
-    return res.json({ result: engine.reverseName(lat, lon), source: 'osm-graph' });
+
+    if ((src === 'auto' || src === 'yandex') && yandex.geocoderEnabled) {
+      try {
+        const r = await yandex.reverse(lat, lon);
+        if (r) return res.json({ result: r, source: 'yandex', warnings });
+      } catch (_e) {
+        /* ниже — фолбэк на граф */
+      }
+    }
+
+    return res.json({ result: engine.reverseName(lat, lon), source: 'osm-graph', warnings });
   });
 
   /* ---------- Тайл-прокси Яндекса (подложка демо-карты) ---------- */

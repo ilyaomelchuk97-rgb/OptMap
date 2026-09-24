@@ -91,8 +91,15 @@ YANDEX_ROUTER_KEY=ваш-ключ-маршрутов     # честные км/�
         </label>
         <label class="opt-row">
           <input type="checkbox" id="opt-traffic" checked>
-          <span>Пробки Яндекса <small>(realtime/прогноз)</small></span>
+          <span>Пробки <small>(при движке Яндекс — реальные)</small></span>
         </label>
+        <div class="opt-row">
+          <span>Движок</span>
+          <select id="opt-engine" style="flex:1">
+            <option value="local" selected>OSM-граф (OpenStreetMap)</option>
+            <option value="yandex">Яндекс Карты (реальные пробки)</option>
+          </select>
+        </div>
         <button id="btn-optimize" class="btn-primary" disabled>Оптимизировать маршрут</button>
       </section>
 
