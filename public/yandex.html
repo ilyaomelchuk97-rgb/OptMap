@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OptMap × Яндекс Карты — пример интеграции</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🚕</text></svg>">
+  <style>
+    body { display: flex; flex-direction: column; height: 100vh; }
+    .topbar {
+      background: #fc3f1d;
+      color: #fff;
+      padding: 10px 16px;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar b { font-size: 15px; }
+    .topbar a { color: #ffe1da; }
+    #setup {
+      margin: 40px auto;
+      max-width: 640px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    #setup code { background: #f1f3f7; padding: 1px 6px; border-radius: 5px; }
+    #setup ol { padding-left: 20px; }
+    #setup.hidden { display: none; }
+    #content { display: flex; flex: 1; min-height: 0; }
+    #sidebar { width: 360px; min-width: 360px; }
+    #map { flex: 1; height: 100%; }
+    .search-item small { color: var(--muted); display: block; font-size: 11px; }
+    .src-badge {
+      display: inline-block;
+      font-size: 10.5px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 6px;
+      vertical-align: 1px;
+    }
+    .src-yandex { background: #ffe9e4; color: #b3271a; }
+    .src-local { background: #e8f0fb; color: #1d5fc4; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div><b>OptMap × Яндекс Карты</b> — оптимизация объезда точек на карте Яндекса</div>
+    <div><a href="/">← основное демо</a></div>
+  </div>
+
+  <div id="setup" class="hidden">
+    <h3 style="margin-top:0">Нужен ключ Yandex Maps JS API</h3>
+    <p>Этот пример рисует карту официальным <b>Yandex Maps JS API 2.1</b>. Для работы нужен
+    бесплатный ключ из <a href="https://developer.tech.yandex.ru/" target="_blank">Кабинета разработчика Яндекса</a>
+    (тип «JS API и Геокодер по HTTP»).</p>
+    <ol>
+      <li>Получите ключ и добавьте его в <code>.env</code> сервера:
+        <pre style="background:#14202f;color:#cde3ff;padding:8px;border-radius:8px;overflow:auto">YANDEX_JS_KEY=ваш-ключ-js-api
+YANDEX_GEOCODER_KEY=ваш-ключ-геокодера   # поиск адресов (опционально)
+YANDEX_ROUTER_KEY=ваш-ключ-маршрутов     # честные км/мин с пробками (опционально)</pre></li>
+      <li>Перезапустите <code>npm start</code> и обновите страницу.</li>
+    </ol>
+    <p>Без ключей основное демо на <a href="/">главной странице</a> продолжает работать
+    (локальный граф дорог OSM + модель пробок).</p>
+  </div>
+
+  <div id="content" style="display:none">
+    <aside id="sidebar">
+      <section class="panel">
+        <div class="search-row">
+          <input id="search" type="text" placeholder="Адрес или улица (Яндекс-геокодер)…" autocomplete="off">
+          <div id="search-results" class="search-results hidden"></div>
+        </div>
+        <div class="hint">Кликните по карте, чтобы добавить точку</div>
+        <div id="points-list" class="points-list"></div>
+        <div id="points-empty" class="empty">Точек пока нет.<br>Добавьте минимум две.</div>
+      </section>
+
+      <section class="panel">
+        <h3>Параметры</h3>
+        <label class="opt-row">
+          <input type="checkbox" id="opt-roundtrip" checked>
+          <span>Замкнутый маршрут <small>(вернуться в старт)</small></span>
+        </label>
+        <label class="opt-row">
+          <input type="checkbox" id="opt-traffic" checked>
+          <span>Пробки <small>(при движке Яндекс — реальные)</small></span>
+        </label>
+        <div class="opt-row">
+          <span>Движок</span>
+          <select id="opt-engine" style="flex:1">
+            <option value="osrm" selected>OSRM — улицы OSM (роутер OSRM)</option>
+            <option value="local">локальный граф OSM (с моделью пробок)</option>
+            <option value="yandex">Яндекс Карты (реальные пробки)</option>
+          </select>
+        </div>
+        <button id="btn-optimize" class="btn-primary" disabled>Оптимизировать маршрут</button>
+      </section>
+
+      <section id="results" class="panel results hidden">
+        <h3>Результат</h3>
+        <div id="totals" class="totals"></div>
+        <div id="order-chips" class="order-chips"></div>
+        <div id="result-meta" class="result-meta"></div>
+        <div id="warnings" class="warnings"></div>
+        <div class="export-row">
+          <button id="btn-json" class="btn-ghost">JSON</button>
+          <button id="btn-curl" class="btn-ghost">Пример запроса</button>
+        </div>
+        <pre id="curl-box" class="curl-box hidden"></pre>
+      </section>
+    </aside>
+    <div id="map"></div>
+  </div>
+
+  <script src="/yandex.js"></script>
+</body>
+</html>

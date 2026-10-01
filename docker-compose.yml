@@ -1,0 +1,21 @@
+services:
+  optmap:
+    build: .
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/data # здесь лежит граф: data/graph.json.gz
+    environment:
+      - PORT=8787
+      - GRAPH_PATH=/app/data/graph.json.gz
+      # - TRAFFIC_PROFILE=/app/config/traffic-profile.json
+      - ALLOW_SYNTHETIC=${ALLOW_SYNTHETIC:-true}
+      - MAX_POINTS=50
+      # OSRM (улицы OSM); свой инстанс: http://osrm:5000
+      - OSRM_URL=${OSRM_URL:-https://router.project-osrm.org}
+      # Яндекс Карты (ключи из https://developer.tech.yandex.ru/)
+      - YANDEX_GEOCODER_KEY=${YANDEX_GEOCODER_KEY:-}
+      - YANDEX_ROUTER_KEY=${YANDEX_ROUTER_KEY:-}
+      - YANDEX_JS_KEY=${YANDEX_JS_KEY:-}
+      - ROUTING_ENGINE=${ROUTING_ENGINE:-auto}
+    restart: unless-stopped
