@@ -1,0 +1,107 @@
+{
+  "version": 8,
+  "name": "OptMap Dark",
+  "sources": {
+    "optmap": {
+      "type": "vector",
+      "tiles": ["/api/tiles/{z}/{x}/{y}"],
+      "minzoom": 11,
+      "maxzoom": 18
+    }
+  },
+  "layers": [
+    { "id": "bg", "type": "background", "paint": { "background-color": "#101418" } },
+
+    { "id": "land", "type": "fill", "source": "optmap", "source-layer": "land",
+      "paint": { "fill-color": "#1B2027" } },
+
+    { "id": "area", "type": "fill", "source": "optmap", "source-layer": "area",
+      "paint": { "fill-color": "#171C22" } },
+    { "id": "cemetery", "type": "fill", "source": "optmap", "source-layer": "cemetery",
+      "paint": { "fill-color": "#1D2A24" } },
+    { "id": "green", "type": "fill", "source": "optmap", "source-layer": "green",
+      "paint": { "fill-color": "#1E2C24" } },
+    { "id": "park", "type": "fill", "source": "optmap", "source-layer": "park",
+      "paint": { "fill-color": "#1F2E26" } },
+    { "id": "sand", "type": "fill", "source": "optmap", "source-layer": "sand",
+      "paint": { "fill-color": "#2A2A22" } },
+    { "id": "water", "type": "fill", "source": "optmap", "source-layer": "water",
+      "paint": { "fill-color": "#12293B" } },
+
+    { "id": "building", "type": "fill", "source": "optmap", "source-layer": "building",
+      "minzoom": 15,
+      "paint": {
+        "fill-color": "#232A32",
+        "fill-outline-color": "#2C343D"
+      } },
+
+    { "id": "boundary", "type": "line", "source": "optmap", "source-layer": "boundary",
+      "paint": {
+        "line-color": "#4A3A5E",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 14, 2.5],
+        "line-dasharray": [4, 2]
+      } },
+
+    { "id": "rail", "type": "line", "source": "optmap", "source-layer": "rail",
+      "paint": {
+        "line-color": "#39414B",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 13, 1, 18, 3]
+      } },
+    { "id": "rail-tie", "type": "line", "source": "optmap", "source-layer": "rail",
+      "paint": {
+        "line-color": "#1B2027",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 15, 0.6, 18, 1.6],
+        "line-dasharray": [1, 3]
+      } },
+
+    { "id": "waterway", "type": "line", "source": "optmap", "source-layer": "waterway",
+      "paint": { "line-color": "#12293B", "line-width": 1.5 } },
+
+    { "id": "barrier", "type": "line", "source": "optmap", "source-layer": "barrier",
+      "paint": { "line-color": "#333B44", "line-width": 1 } },
+
+    { "id": "road-path-case", "type": "line", "source": "optmap", "source-layer": "road_path",
+      "paint": { "line-color": "#232A32", "line-width": 2.5 } },
+    { "id": "road-path", "type": "line", "source": "optmap", "source-layer": "road_path",
+      "paint": { "line-color": "#39414B", "line-width": 1 } },
+
+    { "id": "road-minor-case", "type": "line", "source": "optmap", "source-layer": "road_minor",
+      "paint": { "line-color": "#232A32", "line-width": 3.5 } },
+    { "id": "road-minor", "type": "line", "source": "optmap", "source-layer": "road_minor",
+      "paint": { "line-color": "#39414B", "line-width": 1.5 } },
+
+    { "id": "road-local-case", "type": "line", "source": "optmap", "source-layer": "road_local",
+      "paint": { "line-color": "#232A32", "line-width": 5 } },
+    { "id": "road-local", "type": "line", "source": "optmap", "source-layer": "road_local",
+      "paint": {
+        "line-color": "#4B545E",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 14, 2, 18, 6]
+      } },
+
+    { "id": "road-main-case", "type": "line", "source": "optmap", "source-layer": "road_main_case",
+      "paint": { "line-color": "#4A3D22", "line-width": 6.5 } },
+    { "id": "road-main", "type": "line", "source": "optmap", "source-layer": "road_main",
+      "paint": {
+        "line-color": "#8A7132",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2.5, 18, 9]
+      } },
+
+    { "id": "road-major-case", "type": "line", "source": "optmap", "source-layer": "road_major_case",
+      "paint": { "line-color": "#5C4A1E", "line-width": 8 } },
+    { "id": "road-major", "type": "line", "source": "optmap", "source-layer": "road_major",
+      "paint": {
+        "line-color": "#A8842F",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 11, 3, 18, 12]
+      } },
+
+    { "id": "road-tunnel-major", "type": "line", "source": "optmap", "source-layer": "road_major",
+      "filter": ["==", "tunnel", 1],
+      "paint": { "line-color": "#7A6224", "line-width": 8 } },
+    { "id": "road-tunnel-main", "type": "line", "source": "optmap", "source-layer": "road_main",
+      "filter": ["==", "tunnel", 1],
+      "paint": { "line-color": "#6E5A2A", "line-width": 7 } },
+    { "id": "road-tunnel-local", "type": "line", "source": "optmap", "source-layer": "road_local",
+      "filter": ["==", "tunnel", 1],
+      "paint": { "line-color": "#3A424B", "line-width": 5 } }
+  ]
+}

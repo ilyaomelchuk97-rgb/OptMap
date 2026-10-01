@@ -1,0 +1,27 @@
+{
+  "name": "Monaco",
+  "nameRu": "Монако",
+  "bounds": [
+    7.349001,
+    43.714797,
+    7.490996,
+    43.77
+  ],
+  "center": [
+    7.419998,
+    43.742398
+  ],
+  "minZoom": 11,
+  "maxZoom": 18,
+  "attribution": "© OpenStreetMap contributors (ODbL)",
+  "generated": "2026-09-28 05:25:28",
+  "stats": {
+    "nodes": 180118,
+    "ways": 27335,
+    "features": 29103,
+    "tiles": 4902,
+    "indexEntries": 4202,
+    "graphNodes": 26016,
+    "graphEdges": 50275
+  }
+}

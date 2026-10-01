@@ -1,0 +1,17 @@
+{
+  "name": "optmap",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OptMap — офлайн-карта: векторные тайлы, адреса, дороги, маршруты",
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "python3 -m pipeline.build --input data/monaco.osm.pbf --name Monaco --name-ru \"Монако\" --out data --minz 11 --maxz 18",
+    "preview": "python3 -c \"from pipeline.preview import render_preview; print('см. data/preview.png')\"",
+    "test": "python3 tests/check_layers.py && node tests/check_tiles.js data/tiles"
+  },
+  "devDependencies": {
+    "@mapbox/vector-tile": "^2.0.0",
+    "maplibre-gl": "^4.7.1",
+    "pbf": "^3.2.0"
+  }
+}
